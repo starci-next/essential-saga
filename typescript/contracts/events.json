@@ -1,0 +1,9 @@
+{
+  "orders.order-created": { "version": 1, "step": "order" },
+  "orders.order-cancelled": { "version": 1, "compensates": "orders.order-created" },
+  "payments.charged": { "version": 1, "step": "payment" },
+  "payments.refunded": { "version": 1, "compensates": "payments.charged" },
+  "stock.reserved": { "version": 1, "step": "stock" },
+  "stock.released": { "version": 1, "compensates": "stock.reserved" },
+  "notify.order-placed-sent": { "version": 1, "step": "notify", "side": true }
+}

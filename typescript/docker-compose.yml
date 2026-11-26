@@ -1,0 +1,109 @@
+# The shoe shop: four NestJS services, each with its own database in one Postgres container. No transaction spans two databases,
+# which is why the checkout is a saga. TEST_HOOKS=on opens the fault switches the end-to-end specs use; leave it off in production.
+name: essential-saga-typescript
+
+x-service: &service
+  build:
+    context: .
+  image: essential-saga-typescript:local
+  # restart: always brings a process back after CRASH_AT kills it; recovery then moves its runs on.
+  restart: always
+  depends_on:
+    postgres:
+      condition: service_healthy
+  environment: &env
+    TEST_HOOKS: "on"
+    HTTP_TIMEOUT_MS: "3000"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD: shop
+      POSTGRES_DB: shop
+    ports:
+      - "${PG_PORT:-5451}:5432"
+    volumes:
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop -d notify"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  orders:
+    <<: *service
+    command: ["node", "dist/orders/main.js"]
+    ports:
+      - "${ORDERS_PORT:-4101}:4101"
+    environment:
+      <<: *env
+      PORT: "4101"
+      DATABASE_URL: postgres://shop:shop@postgres:5432/orders
+      PAYMENTS_URL: http://payments:4102
+      STOCK_URL: http://stock:4103
+      NOTIFY_URL: http://notify:4104
+      # Short ladders so the specs run in seconds. A customer-facing deployment waits minutes (for example 60000,120000,240000).
+      LADDER_WAITED_MS: "100,200,400"
+      LADDER_BACKGROUND_MS: "200,400,800"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      payments:
+        condition: service_healthy
+      stock:
+        condition: service_healthy
+      notify:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4101/health || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  payments:
+    <<: *service
+    command: ["node", "dist/payments/main.js"]
+    ports:
+      - "${PAYMENTS_PORT:-4102}:4102"
+    environment:
+      <<: *env
+      PORT: "4102"
+      DATABASE_URL: postgres://shop:shop@postgres:5432/payments
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4102/health || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  stock:
+    <<: *service
+    command: ["node", "dist/stock/main.js"]
+    ports:
+      - "${STOCK_PORT:-4103}:4103"
+    environment:
+      <<: *env
+      PORT: "4103"
+      DATABASE_URL: postgres://shop:shop@postgres:5432/stock
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4103/health || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  notify:
+    <<: *service
+    command: ["node", "dist/notify/main.js"]
+    ports:
+      - "${NOTIFY_PORT:-4104}:4104"
+    environment:
+      <<: *env
+      PORT: "4104"
+      DATABASE_URL: postgres://shop:shop@postgres:5432/notify
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4104/health || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
